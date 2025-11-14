@@ -1,0 +1,27 @@
+version: "3.8"
+services:
+  rag:
+    build: .
+    container_name: rag_service
+    ports:
+      - "8000:8000"
+    environment:
+      # Use .env file to override values (create .env locally)
+      - EMBEDDING_DEVICE=${EMBEDDING_DEVICE:-cpu}
+      - HUGGINGFACE_HUB_CACHE=${HUGGINGFACE_HUB_CACHE:-/models}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+    volumes:
+      # persist model cache between runs to avoid repeated downloads
+      - rag_models:/models
+      # optional: persist app data (if you later use persisted vector DB)
+      - rag_data:/tmp/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/ || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  rag_models:
+  rag_data:

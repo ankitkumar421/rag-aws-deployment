@@ -1,0 +1,33 @@
+# app/test_rag_run.py
+import os
+from pathlib import Path
+from app.rag_utils import load_text_file, split_docs, create_or_load_index, build_qa_chain, FAISS_DIR
+
+# Ensure OPENAI_API_KEY is set in environment before running this script
+if not os.getenv("OPENAI_API_KEY"):
+    raise SystemExit("Set OPENAI_API_KEY in environment before running the test (export OPENAI_API_KEY=...)")
+
+# Paths
+sample_path = Path("app") / "sample_docs" / "sample.txt"
+print("Sample path:", sample_path.resolve())
+
+# Step 1: Load
+docs = load_text_file(str(sample_path))
+print(f"Loaded {len(docs)} document(s).")
+
+# Step 2: Split
+chunks = split_docs(docs)
+print(f"Split into {len(chunks)} chunk(s).")
+
+# Step 3: Build or load FAISS index (persisted)
+db = create_or_load_index(chunks, persist_dir=str(FAISS_DIR))
+print("FAISS index created/loaded at:", FAISS_DIR)
+
+# Step 4: Build QA chain
+qa = build_qa_chain(db, k=2)
+
+# Step 5: Run a sample query
+query = "What is RAG and why is it useful?"
+print("Running query:", query)
+answer = qa.run(query)
+print("Answer:\n", answer)

@@ -1,0 +1,78 @@
+# compatibility shim for OpenAI exceptions (placed before langchain imports)
+import openai as _openai
+import types
+
+# LangChain expects a bunch of exception classes under openai.error
+# Some OpenAI python packages/versions may not expose them as a namespace.
+# Provide safe mappings to built-in exception types so retry logic can reference them.
+if not hasattr(_openai, "error"):
+    _openai.error = types.SimpleNamespace(
+        Timeout=TimeoutError,
+        APIError=Exception,
+        AuthenticationError=PermissionError,
+        RateLimitError=Exception,
+        APIConnectionError=ConnectionError,
+        ServiceUnavailableError=Exception,
+        InvalidRequestError=ValueError,
+    )
+
+# Now import LangChain components (safe because openai.error exists)
+from pathlib import Path
+from typing import List
+import os
+
+from langchain.document_loaders import TextLoader
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain.embeddings import HuggingFaceEmbeddings
+from langchain.vectorstores import Chroma
+from langchain.chains import RetrievalQA
+from langchain.chat_models import ChatOpenAI
+
+# Config via env vars
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+LLM_MODEL = os.getenv("LLM_MODEL", "gpt-3.5-turbo")
+FAISS_DIR = Path(os.getenv("FAISS_INDEX_DIR", "/tmp/faiss_index"))
+
+# instantiate embeddings + LLM wrappers (LangChain)
+# Passing API key explicitly avoids relying on other config layers
+embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
+llm = ChatOpenAI(model_name=LLM_MODEL, openai_api_key=OPENAI_API_KEY)
+
+
+def load_text_file(path: str):
+    """Load a single text file into LangChain Document objects."""
+    loader = TextLoader(path)
+    docs = loader.load()
+    return docs
+
+
+def split_docs(docs, chunk_size: int = 800, chunk_overlap: int = 100):
+    """Split Document objects into smaller chunks to respect token limits."""
+    splitter = RecursiveCharacterTextSplitter(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
+    chunks = splitter.split_documents(docs)
+    return chunks
+
+
+def create_or_load_index(chunks, persist_dir=None):
+    from langchain.vectorstores import Chroma
+    db = Chroma.from_documents(chunks, embeddings, persist_directory=persist_dir)
+    return db
+
+    # persist_path = Path(persist_dir)
+    # persist_path.mkdir(parents=True, exist_ok=True)
+
+    # If saved index exists, load it; otherwise create and save
+    try:
+        db = FAISS.load_local(str(persist_path), embeddings)
+        return db
+    except Exception:
+        db = FAISS.from_documents(chunks, embeddings)
+        db.save_local(str(persist_path))
+        return db
+
+
+def build_qa_chain(db, k: int = 3):
+    """Create RetrievalQA chain that will search the vector DB and ask LLM."""
+    retriever = db.as_retriever(search_kwargs={"k": k})
+    qa = RetrievalQA.from_chain_type(llm=llm, chain_type="stuff", retriever=retriever)
+    return qa

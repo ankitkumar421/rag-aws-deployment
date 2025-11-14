@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.venv/
+.env
+venv/
+pip-wheel-metadata/
+# OS
+.DS_Store
+# Python tooling
+.idea/
+.vscode/
+# build artifacts
+dist/
+build/
+*.egg-info/
+# local secrets / keys
+*.pem

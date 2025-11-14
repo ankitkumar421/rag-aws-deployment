@@ -1,0 +1,33 @@
+{
+  "family": "rag-task-def",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "512",
+  "memory": "1024",
+  "executionRoleArn": "arn:aws:iam::641053169289:role/ecsTaskExecutionRole-rag",
+  "taskRoleArn": "arn:aws:iam::641053169289:role/ecsTaskRole-rag",
+  "containerDefinitions": [
+    {
+      "name": "rag-container",
+      "image": "641053169289.dkr.ecr.us-east-1.amazonaws.com/rag-service:v1",
+      "essential": true,
+      "portMappings": [
+        {
+          "containerPort": 8000,
+          "protocol": "tcp"
+        }
+      ],
+      "environment": [
+        { "name": "EMBEDDING_DEVICE", "value": "cpu" }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/rag",
+          "awslogs-region": "us-east-1",
+          "awslogs-stream-prefix": "ecs"
+        }
+      }
+    }
+  ]
+}

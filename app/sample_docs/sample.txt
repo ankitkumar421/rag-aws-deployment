@@ -1,0 +1,4 @@
+RAG (Retrieval-Augmented Generation) is a method to combine external documents with an LLM.
+It splits documents into chunks, converts them into embeddings, stores embeddings in a vector index,
+and at query time finds the most relevant chunks to include as context for the model.
+This approach keeps answers grounded in your content and reduces hallucinations.
