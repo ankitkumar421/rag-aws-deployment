@@ -19,12 +19,12 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ secrets.AWS_REGION }}
 
-      - name: Install jq (used to transform task definition)
+      - name: Install jq
         run: sudo apt-get update && sudo apt-get install -y jq
 
       - name: Login to Amazon ECR
         run: |
-          aws ecr get-login-password | docker login --username AWS --password-stdin ${{ secrets.ECR_REPOSITORY%%/* }}
+          aws ecr get-login-password | docker login --username AWS --password-stdin ${{ secrets.ECR_REGISTRY }}
 
       - name: Build, tag and push Docker image
         env:
@@ -45,11 +45,8 @@ jobs:
         env:
           CONTAINER_NAME: ${{ secrets.CONTAINER_NAME }}
         run: |
-          # produce a clean register payload (keep relevant fields)
           jq '.taskDefinition | {family:.family, taskRoleArn:.taskRoleArn, executionRoleArn:.executionRoleArn, networkMode:.networkMode, containerDefinitions:.containerDefinitions, volumes:.volumes, requiresCompatibilities:.requiresCompatibilities, cpu:.cpu, memory:.memory}' taskdef.json > taskdef-register.json
-          # update the container image(s) to the new image from earlier step
           IMAGE=$(cat $GITHUB_ENV | grep IMAGE | cut -d'=' -f2)
-          # update all container definitions matching CONTAINER_NAME
           jq --arg img "$IMAGE" --arg cname "$CONTAINER_NAME" '(.containerDefinitions[] | select(.name==$cname) ).image = $img | .' taskdef-register.json > taskdef-register2.json
 
       - name: Register new task definition
