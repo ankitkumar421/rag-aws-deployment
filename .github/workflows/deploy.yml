@@ -1,0 +1,87 @@
+name: CI/CD — Build & Deploy to ECS
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  build-push-deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Install jq (used to transform task definition)
+        run: sudo apt-get update && sudo apt-get install -y jq
+
+      - name: Login to Amazon ECR
+        run: |
+          aws ecr get-login-password | docker login --username AWS --password-stdin ${{ secrets.ECR_REPOSITORY%%/* }}
+
+      - name: Build, tag and push Docker image
+        env:
+          ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY }}
+        run: |
+          IMAGE_TAG=${{ github.sha }}
+          docker build -t $ECR_REPOSITORY:$IMAGE_TAG .
+          docker push $ECR_REPOSITORY:$IMAGE_TAG
+          echo "IMAGE=$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_ENV
+
+      - name: Fetch current task definition
+        env:
+          TASK_FAMILY: ${{ secrets.TASK_FAMILY }}
+        run: |
+          aws ecs describe-task-definition --task-definition "$TASK_FAMILY" > taskdef.json
+
+      - name: Create register payload (update image)
+        env:
+          CONTAINER_NAME: ${{ secrets.CONTAINER_NAME }}
+        run: |
+          # produce a clean register payload (keep relevant fields)
+          jq '.taskDefinition | {family:.family, taskRoleArn:.taskRoleArn, executionRoleArn:.executionRoleArn, networkMode:.networkMode, containerDefinitions:.containerDefinitions, volumes:.volumes, requiresCompatibilities:.requiresCompatibilities, cpu:.cpu, memory:.memory}' taskdef.json > taskdef-register.json
+          # update the container image(s) to the new image from earlier step
+          IMAGE=$(cat $GITHUB_ENV | grep IMAGE | cut -d'=' -f2)
+          # update all container definitions matching CONTAINER_NAME
+          jq --arg img "$IMAGE" --arg cname "$CONTAINER_NAME" '(.containerDefinitions[] | select(.name==$cname) ).image = $img | .' taskdef-register.json > taskdef-register2.json
+
+      - name: Register new task definition
+        run: |
+          NEW_DEF_ARN=$(aws ecs register-task-definition --cli-input-json file://taskdef-register2.json --query 'taskDefinition.taskDefinitionArn' --output text)
+          echo "NEW_TASK_DEF_ARN=$NEW_DEF_ARN" >> $GITHUB_ENV
+
+      - name: Update ECS service to use new task definition
+        env:
+          ECS_CLUSTER: ${{ secrets.ECS_CLUSTER }}
+          ECS_SERVICE: ${{ secrets.ECS_SERVICE }}
+        run: |
+          aws ecs update-service --cluster "$ECS_CLUSTER" --service "$ECS_SERVICE" --task-definition "$NEW_TASK_DEF_ARN" --force-new-deployment
+
+      - name: Wait for deployment to finish (checks every 10s up to 5 min)
+        env:
+          ECS_CLUSTER: ${{ secrets.ECS_CLUSTER }}
+          ECS_SERVICE: ${{ secrets.ECS_SERVICE }}
+        run: |
+          timeout=300
+          interval=10
+          elapsed=0
+          while [ $elapsed -lt $timeout ]; do
+            status=$(aws ecs describe-services --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE" --query 'services[0].deployments[0].rolloutState' --output text)
+            echo "deployment status: $status"
+            if [ "$status" == "COMPLETED" ]; then
+              echo "Deployment completed"
+              exit 0
+            fi
+            sleep $interval
+            elapsed=$((elapsed + interval))
+          done
+          echo "Timed out waiting for deployment" >&2
+          aws ecs describe-services --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE" --output json
+          exit 1
