@@ -31,9 +31,19 @@ jobs:
           ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY }}
         run: |
           IMAGE_TAG=${{ github.sha }}
-          docker build -t $ECR_REPOSITORY:$IMAGE_TAG .
-          docker push $ECR_REPOSITORY:$IMAGE_TAG
-          echo "IMAGE=$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_ENV
+          FULL_IMAGE="$ECR_REPOSITORY:$IMAGE_TAG"
+
+          echo "Building image: $FULL_IMAGE"
+          docker build -t "$FULL_IMAGE" .
+
+          echo "Pushing image: $FULL_IMAGE"
+          docker push "$FULL_IMAGE"
+
+          # Correct way to write to GITHUB_ENV
+          echo "IMAGE=$FULL_IMAGE" >> $GITHUB_ENV
+
+          echo "DEBUG: wrote IMAGE=$FULL_IMAGE"
+
 
       - name: Fetch current task definition
         env:
