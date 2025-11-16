@@ -58,9 +58,11 @@ jobs:
           # build the minimal register JSON
           jq '.taskDefinition | {family:.family, taskRoleArn:.taskRoleArn, executionRoleArn:.executionRoleArn, networkMode:.networkMode, containerDefinitions:.containerDefinitions, volumes:.volumes, requiresCompatibilities:.requiresCompatibilities, cpu:.cpu, memory:.memory}' taskdef.json > taskdef-register.json
 
-          # read IMAGE robustly from the env file written earlier
-          if [ -f "$GITHUB_ENV" ]; then
-            IMAGE=$(grep '^IMAGE=' $GITHUB_ENV | head -n1 | cut -d'=' -f2-)
+          # prefer already-set IMAGE env var; if empty, read from $GITHUB_ENV
+          if [ -z "${IMAGE:-}" ]; then
+            if [ -f "$GITHUB_ENV" ]; then
+              IMAGE=$(grep '^IMAGE=' "$GITHUB_ENV" | head -n1 | cut -d'=' -f2-)
+            fi
           fi
 
           echo "DEBUG: IMAGE=[$IMAGE]"
