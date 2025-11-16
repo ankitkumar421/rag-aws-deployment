@@ -45,9 +45,28 @@ jobs:
         env:
           CONTAINER_NAME: ${{ secrets.CONTAINER_NAME }}
         run: |
+          # build the minimal register JSON
           jq '.taskDefinition | {family:.family, taskRoleArn:.taskRoleArn, executionRoleArn:.executionRoleArn, networkMode:.networkMode, containerDefinitions:.containerDefinitions, volumes:.volumes, requiresCompatibilities:.requiresCompatibilities, cpu:.cpu, memory:.memory}' taskdef.json > taskdef-register.json
-          IMAGE=$(cat $GITHUB_ENV | grep IMAGE | cut -d'=' -f2)
-          jq --arg img "$IMAGE" --arg cname "$CONTAINER_NAME" '(.containerDefinitions[] | select(.name==$cname) ).image = $img | .' taskdef-register.json > taskdef-register2.json
+
+          # read IMAGE robustly from the env file written earlier
+          if [ -f "$GITHUB_ENV" ]; then
+            IMAGE=$(grep '^IMAGE=' $GITHUB_ENV | head -n1 | cut -d'=' -f2-)
+          fi
+
+          echo "DEBUG: IMAGE=[$IMAGE]"
+          if [ -z "$IMAGE" ]; then
+            echo "ERROR: IMAGE is empty. Build or docker push step may have failed." >&2
+            exit 2
+          fi
+
+          # Try to update the specific container; if select fails, update ALL containers
+          jq --arg img "$IMAGE" --arg cname "$CONTAINER_NAME"             '(.containerDefinitions[] | select(.name==$cname) ).image = $img | .' taskdef-register.json > taskdef-register2.json ||           jq --arg img "$IMAGE" '(.containerDefinitions) |= map(.image = $img)' taskdef-register.json > taskdef-register2.json
+
+          echo "=== container -> image mapping ==="
+          jq -r '.containerDefinitions[] | "\(.name) => \(.image // "<MISSING>")"' taskdef-register2.json
+
+          echo "=== preview register payload (first 200 chars) ==="
+          head -c 200 taskdef-register2.json | sed -e 's/\n/\n/g' || true
 
       - name: Register new task definition
         run: |
